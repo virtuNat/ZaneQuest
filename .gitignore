@@ -1,3 +1,6 @@
+# Python code cache
+__pycache__
+
 # Compiled Object files
 *.o
 *.obj
