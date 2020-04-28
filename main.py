@@ -36,7 +36,7 @@ class Scene(GameState):
         self.textbox.update()
 
     async def draw_frame(self):
-        self.window.fill(0xEFEFEF)
+        self.window.fill(pg.Color(213, 210, 219))
         self.textbox.draw(self.window)
         pg.display.flip()
 
@@ -71,7 +71,7 @@ class GameApplication(Singleton):
 def main():
     pg.init()
     pg.display.set_caption('ZaneQuest 2020')
-    # pg.display.set_icon(pg.image.load(os.path.join('assets', 'textures', 'icon.png')))
+    pg.display.set_icon(pg.image.load(os.path.join('assets', 'textures', 'icon.png')))
     pg.display.set_mode((1024, 768), pg.ASYNCBLIT | pg.HWSURFACE | pg.DOUBLEBUF)
     aio.run(GameApplication().run(40))
     pg.quit()

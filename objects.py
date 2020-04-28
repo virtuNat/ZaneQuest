@@ -3,86 +3,111 @@ import re
 import pygame as pg
 from common import (ClipDrawSprite)
 
-class BoxedText(pg.sprite.Sprite):
+class ScrollableText(pg.sprite.Sprite):
+    """A text surface that can animate scrolling."""
+    __slots__ = ('image', 'rect', 'font', 'color', '_textgen', 'done')
 
-    def __init__(self, rect, font, size, scroll=0):
+    def __init__(self, surf, pos, font, text, color, scroll):
         super().__init__()
-        self.image = pg.Surface(rect.size, pg.SRCALPHA, 32)
-        self.rect = rect
-        self.font = pg.font.Font(font, size)
-        self.scroll = scroll # If non-zero, the frame delay between letters.
-        self.frame = 0
-        self.color = pg.Color(0, 0, 0)
+        self.image = surf
+        self.rect = pg.Rect(pos, font.size(text))
+        self.font = font
+        self.color = color
+        if scroll == 0:
+            self.image.blit(self.font.render(text, True, color), pos)
+            self._textgen = None
+            self.done = True
+        else:
+            self._textgen = (text[:i+1] for i in range(len(text)) if text[i] != ' ')
+            self.done = False
+
+    def update(self):
+        if not self.done:
+            try:
+                text = next(self._textgen)
+            except StopIteration:
+                self.done = True
+            else:
+                self.image.fill(pg.Color(0, 0, 0, 0), self.rect)
+                self.image.blit(
+                    self.font.render(text, True, self.color),
+                    self.rect,
+                    )
+
+
+class TextBox(pg.sprite.Sprite):
+    """Generic Textbox"""
+
+    def __init__(self, bounds, bgsprite, textrect, font, scroll=0):
+        super().__init__()
+        self.bounds = bounds
+        self.bgsprite = bgsprite
+        self.textimage = pg.Surface(textrect.size, pg.SRCALPHA, 32)
+        self.textrect = textrect
+        self.font = font
+        self.scroll = scroll
+        self._lines = []
+        self._frame = 0
 
     def set_text(self, text, color):
-        self.frame = 0
-        self.color = color
-        if not self.scroll:
-            self.render(text)
-            self.textgen = iter(())
-        else:
-            self.textgen = (text[:i+1] for i in range(len(text)) if text[i] != ' ')
-
-    def render(self, text):
         words = re.findall(r'\S+\s*', text)
         lines = [words[0]]
         for word in words[1:]:
-            if self.font.size(lines[-1]+word)[0] > self.rect.w:
+            if self.font.size(lines[-1]+word)[0] > self.textrect.w:
                 lines.append(word)
             else:
                 lines[-1] += word
-        self.image.fill(pg.Color(0, 0, 0, 0))
-        size = self.font.get_linesize()
-        for idx, line in enumerate(lines):
-            self.image.blit(self.font.render(line, True, self.color), (0, idx * size))
+        self._lines = [
+            ScrollableText(
+                self.textimage, (0, idx * self.font.get_linesize()),
+                self.font, line, color, self.scroll,
+                )
+            for idx, line in enumerate(lines)
+            ]
 
     def update(self):
-        if self.scroll > 0 and self.frame == 0:
-            try:
-                self.render(next(self.textgen))
-            except StopIteration:
-                pass
-            else:
-                self.frame = (self.frame + 1) % self.scroll
+        self.bgsprite.update()
+        if self.scroll > 0 and self._frame == 0:
+            for line in self._lines:
+                if not line.done:
+                    line.update()
+                    break
+        self._frame = (self._frame + 1) % self.scroll
 
-
-class TextBox(ClipDrawSprite):
-
-    def __init__(self, bounds, atlas, rect=None, clip=None):
-        super().__init__(atlas, rect, clip)
-        self.boxed_text = None
-        self.frame = 0
-
-    def update(self):
-        pass
+    def draw(self, surf):
+        self.bgsprite.image.blit(self.textimage, self.textrect)
+        self.bgsprite.draw(surf)
 
 
 class SampleTextBox(TextBox):
+    """Sample test textbox"""
 
     def __init__(self, bounds):
         super().__init__(
             bounds,
-            pg.Surface((900, 210), pg.SRCALPHA, 32),
+            ClipDrawSprite(pg.Surface((900, 200), pg.SRCALPHA, 32)),
+            pg.Rect(25, 30, 850, 170),
+            pg.font.Font(os.path.join('assets', 'fonts', 'DejaVuSans.ttf'), 20),
+            2,
             )
-        self.rect.midbottom = bounds.midbottom
-        self.boxed_text = BoxedText(
-            pg.Rect(10, 10, 880, 200),
-            os.path.join('assets', 'fonts', 'DejaVuSansCondensed.ttf'), 20, 1,
-            )
-        self.boxed_text.set_text(
+        self.bgsprite.rect.midbottom = bounds.midbottom
+        self.set_text(
             "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor "
             "incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis "
             "nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. "
             "Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu "
             "fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in "
             "culpa qui officia deserunt mollit anim id est laborum.",
-            pg.Color(16, 16, 16)
+            pg.Color(252, 61, 57),
             )
 
-    def update(self):
-        self.boxed_text.update()
-
     def draw(self, surf):
-        self.image.fill(pg.Color(241, 38, 192))
-        self.image.blit(self.boxed_text.image, self.boxed_text.rect)
-        surf.blit(self.image, self.rect, self.clip)
+        self.bgsprite.image.fill(pg.Color(49, 39, 63))
+        super().draw(surf)
+
+
+class ZaneBox(TextBox):
+    """Main textbox at the bottom of scenes and the overworld."""
+
+    def __init__(self):
+        pass
