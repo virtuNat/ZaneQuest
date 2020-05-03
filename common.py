@@ -12,7 +12,7 @@ def load_image(name, *, alpha=None, colorkey=None):
     if alpha is None:
         image = image.convert()
         if colorkey is not None:
-            image.set_colorkey(colorkey)
+            image.set_colorkey(colorkey, pg.RLEACCEL)
         return image
     return image.convert_alpha()
 
@@ -77,8 +77,14 @@ class GameState(Singleton):
         self.window = pg.display.get_surface()
         self.bounds = self.window.get_rect()
 
-    async def eval_logic(self):
+    def eval_logic(self):
         raise NotImplementedError('override logic handler')
 
-    async def draw_frame(self):
+    def draw_frame(self):
         raise NotImplementedError('override display handler')
+
+    # async def eval_logic(self):
+    #     raise NotImplementedError('override logic handler')
+
+    # async def draw_frame(self):
+    #     raise NotImplementedError('override display handler')

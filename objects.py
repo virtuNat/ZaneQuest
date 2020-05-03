@@ -1,7 +1,8 @@
 import os
 import re
+from itertools import chain
 import pygame as pg
-from common import (ClipDrawSprite)
+from common import (load_image, Singleton, ClipDrawSprite)
 
 class ScrollableText(pg.sprite.Sprite):
     """A text surface that can animate scrolling."""
@@ -46,6 +47,7 @@ class TextBox(pg.sprite.Sprite):
         self.textrect = textrect
         self.font = font
         self.scroll = scroll
+        self.done = scroll == 0
         self._lines = []
         self._frame = 0
 
@@ -66,13 +68,15 @@ class TextBox(pg.sprite.Sprite):
             ]
 
     def update(self):
-        self.bgsprite.update()
-        if self.scroll > 0 and self._frame == 0:
-            for line in self._lines:
-                if not line.done:
-                    line.update()
-                    break
-        self._frame = (self._frame + 1) % self.scroll
+        if not self.done:
+            if self._frame == 0:
+                for line in self._lines:
+                    if not line.done:
+                        line.update()
+                        break
+                else:
+                    self.done = True
+            self._frame = (self._frame + 1) % self.scroll
 
     def draw(self, surf):
         self.bgsprite.image.blit(self.textimage, self.textrect)
@@ -101,13 +105,104 @@ class SampleTextBox(TextBox):
             pg.Color(252, 61, 57),
             )
 
+    def update(self):
+        self.bgsprite.update()
+        super().update()
+
     def draw(self, surf):
         self.bgsprite.image.fill(pg.Color(49, 39, 63))
         super().draw(surf)
 
 
-class ZaneBox(TextBox):
-    """Main textbox at the bottom of scenes and the overworld."""
+class ZaneBoxBG(Singleton, ClipDrawSprite):
+    emotemap = {
+        'IDLE': 0,
+        }
 
-    def __init__(self):
+    def __init__(self, bounds):
+        super().__init__(rect=pg.Rect(0, 0, 220, 220))
+        self.image = pg.Surface(self.rect.size, pg.SRCALPHA, 32)
+        self.bounds = bounds
+        self.atlas = load_image('zanemotes.png', alpha=True)
+        self.mask = load_image('zaneboxmask.png')
+        self.set_emote('IDLE')
+
+    def set_emote(self, emote):
+        self.clip.x = self.emotemap[emote] * self.clip.w
+        self.image.fill(pg.Color(0, 0, 0, 0))
+        self.image.blit(self.atlas, (0, 0), self.clip)
+        pg.transform.threshold(self.image, self.mask, pg.Color(0, 255, 0, 255), inverse_set=True)
+
+
+class NextArrow(Singleton, ClipDrawSprite):
+    """The arrow that indicates you can proceed to the next text frame."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.visible = False
+
+    def update(self):
         pass
+
+    def draw(self, surf):
+        if self.visible:
+            super().draw(surf)
+
+
+class ZaneBox(Singleton, TextBox):
+    """Main textbox at the bottom of scenes and the overworld."""
+    movelist = (1, 3, 6, 10, 15, 21, 54, 54, 21, 15, 10, 6, 3, 1)
+
+    def __init__(self, bounds):
+        self.atlas = load_image('zanebox.png', alpha=True)
+        super().__init__(
+            bounds,
+            ZaneBoxBG(bounds),
+            pg.Rect(235, 48, 650, 147),
+            pg.font.Font(os.path.join('assets', 'fonts', 'DejaVuSans.ttf'), 23),
+            1,
+            )
+        self.arrow = NextArrow(
+            self.atlas,
+            pg.Rect(850, 160, 26, 45),
+            pg.Rect(874, 220, 26, 45),
+            )
+        self.set_text(
+            "Did you fucking know that Chuck E. Cheese isn't actually made of cheese? "
+            "Funniest shit I've ever seen in my life. Better than that pickle shit.",
+            pg.Color(10, 10, 10),
+            )
+        self.image = pg.Surface((900, 220), pg.SRCALPHA, 32)
+        self.rect = self.image.get_rect()
+        self.rect.midtop = bounds.midbottom
+
+        self.astate = 0 # 0: Idle, 1: Up, 2: Down, 3: Scroll
+        self._frame = 0
+        self._adisp = iter(self.movelist)
+
+    def start(self):
+        if self.astate == 0:
+            self.astate = 1
+
+    def update(self):
+        if self.astate == 3:
+            super().update()
+            if self.done:
+                self.arrow.visible = True
+        else:
+            try:
+                if self.astate == 1:
+                    self.rect.y -= next(self._adisp)
+                elif self.astate == 2:
+                    self.rect.y += next(self._adisp)
+            except StopIteration:
+                self.astate = 3
+                self._adisp = iter(self.movelist)
+
+    def draw(self, surf):
+        self.bgsprite.draw(self.image)
+        self.image.blit(self.atlas, (0, 0))
+        self.image.blit(self.textimage, self.textrect)
+        if self.arrow.visible:
+            self.arrow.draw(self.image)
+        surf.blit(self.image, self.rect)
