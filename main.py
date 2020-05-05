@@ -15,8 +15,8 @@ key_config = {
     'R': pg.K_RIGHT,
     'A': pg.K_z,
     'B': pg.K_x,
-    'Start': pg.K_RETURN,
-    'Select': pg.K_BACKSPACE,
+    'Start': pg.K_ESCAPE,
+    'Select': pg.K_RETURN,
     }
 
 class Scene(GameState):
@@ -31,8 +31,10 @@ class Scene(GameState):
             if event.type == pg.QUIT:
                 self.handler.running = False
             elif event.type == pg.KEYDOWN:
-                if event.key == key_config['A']:
-                    self.zanebox.start()
+                try:
+                    self.zanebox.send(key_config[event.key])
+                except KeyError:
+                    pass
             elif event.type == pg.KEYUP:
                 pass
         self.zanebox.update()
@@ -51,6 +53,8 @@ class GameApplication(Singleton):
         self.rect = self.window.get_rect()
         self.state = Scene(self)
         self.running = True
+
+        key_config.update({v: k for k, v in key_config.items()})
 
     def run(self, fps):
         clock = pg.time.Clock()

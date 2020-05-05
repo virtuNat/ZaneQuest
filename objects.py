@@ -1,12 +1,12 @@
 import os
 import re
-from itertools import chain
+from itertools import cycle, chain
 import pygame as pg
 from common import (load_image, Singleton, ClipDrawSprite)
 
 class ScrollableText(pg.sprite.Sprite):
     """A text surface that can animate scrolling."""
-    __slots__ = ('image', 'rect', 'font', 'color', '_textgen', 'done')
+    __slots__ = ('image', 'rect', 'font', 'color', 'text', '_textgen', 'done')
 
     def __init__(self, surf, pos, font, text, color, scroll):
         super().__init__()
@@ -14,6 +14,7 @@ class ScrollableText(pg.sprite.Sprite):
         self.rect = pg.Rect(pos, font.size(text))
         self.font = font
         self.color = color
+        self.text = text
         if scroll == 0:
             self.image.blit(self.font.render(text, True, color), pos)
             self._textgen = None
@@ -21,6 +22,10 @@ class ScrollableText(pg.sprite.Sprite):
         else:
             self._textgen = (text[:i+1] for i in range(len(text)) if text[i] != ' ')
             self.done = False
+
+    def interrupt(self):
+        if self._textgen is not None:
+            self._textgen = iter((self.text,))
 
     def update(self):
         if not self.done:
@@ -66,6 +71,16 @@ class TextBox(pg.sprite.Sprite):
                 )
             for idx, line in enumerate(lines)
             ]
+
+    def set_textframes(self, arglist):
+        self._textframes = (self.set_text(*arg) for arg in arglist)
+
+    def send(self, signal):
+        pass
+
+    def interrupt(self):
+        for line in self._lines:
+            line.interrupt()
 
     def update(self):
         if not self.done:
@@ -134,61 +149,97 @@ class ZaneBoxBG(Singleton, ClipDrawSprite):
         pg.transform.threshold(self.image, self.mask, pg.Color(0, 255, 0, 255), inverse_set=True)
 
 
-class NextArrow(Singleton, ClipDrawSprite):
+class NextArrow(ClipDrawSprite):
     """The arrow that indicates you can proceed to the next text frame."""
+    adisp = (0,)*10 + (1, 2, 4, 8, 16, 8, 4, 2, 1) + (0,)*11
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.visible = False
+        self._anchor = self.rect.x
+        self._frame = False
+        self._adisp = None
+
+    def set_visible(self, visible):
+        if visible == self.visible:
+            return
+        if visible:
+            self._frame = False
+            self._adisp = cycle(self.adisp)
+        self.visible = visible
 
     def update(self):
-        pass
-
-    def draw(self, surf):
         if self.visible:
-            super().draw(surf)
+            if self._frame:
+                self.rect.x = self._anchor + next(self._adisp)
+            self._frame = not self._frame
 
 
 class ZaneBox(Singleton, TextBox):
     """Main textbox at the bottom of scenes and the overworld."""
-    movelist = (1, 3, 6, 10, 15, 21, 54, 54, 21, 15, 10, 6, 3, 1)
+    avel = (1, 3, 6, 10, 15, 21, 54, 54, 21, 15, 10, 6, 3, 1)
 
     def __init__(self, bounds):
         self.atlas = load_image('zanebox.png', alpha=True)
         super().__init__(
             bounds,
             ZaneBoxBG(bounds),
-            pg.Rect(235, 48, 650, 147),
+            pg.Rect(235, 48, 605, 147),
             pg.font.Font(os.path.join('assets', 'fonts', 'DejaVuSans.ttf'), 23),
             1,
             )
         self.arrow = NextArrow(
             self.atlas,
-            pg.Rect(850, 160, 26, 45),
+            pg.Rect(840, 160, 26, 45),
             pg.Rect(874, 220, 26, 45),
             )
-        self.set_text(
+        self.set_textframes(((
             "Did you fucking know that Chuck E. Cheese isn't actually made of cheese? "
             "Funniest shit I've ever seen in my life. Better than that pickle shit.",
             pg.Color(10, 10, 10),
-            )
+            ), (
+            "What, did you honestly really fucking think that? Wow, you're such a goddamn "
+            "loser. Clearly you walk around claiming to have a high enough IQ to understand "
+            "\"intellectual\" shows, huh? Creep.",
+            pg.Color(10, 10, 10),
+            ),))
         self.image = pg.Surface((900, 220), pg.SRCALPHA, 32)
         self.rect = self.image.get_rect()
         self.rect.midtop = bounds.midbottom
 
         self.astate = 0 # 0: Idle, 1: Up, 2: Down, 3: Scroll
-        self._frame = 0
-        self._adisp = iter(self.movelist)
+        self._adisp = iter(self.avel)
 
-    def start(self):
-        if self.astate == 0:
-            self.astate = 1
+    def queue_next(self):
+        try:
+            next(self._textframes)
+        except StopIteration:
+            self.astate = 2
+        else:
+            self.textimage.fill(pg.Color(0, 0, 0, 0))
+            self.arrow.set_visible(False)
+            self.done = False
+
+    def send(self, signal):
+        if signal == 'A':
+            if self.astate == 0:
+                self.astate = 1
+                next(self._textframes)
+            elif self.astate == 3:
+                if not self.done:
+                    self.interrupt()
+                else:
+                    self.queue_next()
+        elif signal == 'B':
+            if self.astate == 3:
+                self.queue_next()
 
     def update(self):
         if self.astate == 3:
             super().update()
             if self.done:
-                self.arrow.visible = True
+                self.arrow.set_visible(True)
+            self.arrow.update()
         else:
             try:
                 if self.astate == 1:
@@ -196,8 +247,8 @@ class ZaneBox(Singleton, TextBox):
                 elif self.astate == 2:
                     self.rect.y += next(self._adisp)
             except StopIteration:
-                self.astate = 3
-                self._adisp = iter(self.movelist)
+                self.astate = (3, 0)[self.astate-1]
+                self._adisp = iter(self.avel)
 
     def draw(self, surf):
         self.bgsprite.draw(self.image)
